@@ -1,7 +1,38 @@
-'use strict';
-const assert = require('assert');
-const test = require('tape');
-const timingSafeEqual = require('./browser')
+var assert = require('assert');
+var test = require('tape');
+var timingSafeEqual = require('./browser')
+
+// ad hoc polyfill buffer.from
+if (!Buffer.from) {
+  Buffer.from = function(value) {
+    return new Buffer(value);
+  }
+}
+
+// ad hoc polyfill buffer.alloc
+if (!Buffer.alloc) {
+  Buffer.alloc = function(size, fill) {
+    var buffer = Buffer.from(size);
+    buffer.fill(fill);
+    return buffer;
+  };
+}
+
+// ad hoc polyfill buffer.equals
+if (typeof Buffer.prototype.equals !== 'function') {
+  Buffer.prototype.equals = function (buffer) {
+    if (this.length !== buffer.length) {
+      return false;
+    }
+    for (var i = 0; i < this.length; i++) {
+      if (this[i] !== buffer[i]) {
+        return false;
+      }
+    }
+    return true;
+  };
+}
+
 test('generic', function (t) {
   t.plan(5);
   t.strictEqual(
@@ -39,41 +70,41 @@ test('benchmarking', function (t) {
   // Note that in reality there are roughly `2 * numTrials - 2` degrees of
   // freedom, not ∞. However, assuming `numTrials` is large, this doesn't
   // significantly affect the threshold.
-  const T_THRESHOLD = 3.892;
+  var T_THRESHOLD = 3.892;
 
-  const tv = getTValue(timingSafeEqual);
+  var tv = getTValue(timingSafeEqual);
   t.ok(
     Math.abs(tv) < T_THRESHOLD,
-    `timingSafeEqual should not leak information from its execution time (t=${tv})`
+    'timingSafeEqual should not leak information from its execution time (t=' + tv + ')'
   );
 
   // As a sanity check to make sure the statistical tests are working, run the
   // same benchmarks again, this time with an unsafe comparison function. In this
   // case the t-value should be above the threshold.
-  const unsafeCompare = (bufA, bufB) => bufA.equals(bufB);
-  const t2 = getTValue(unsafeCompare);
+  var unsafeCompare = function (bufA, bufB) { return bufA.equals(bufB); };
+  var t2 = getTValue(unsafeCompare);
   t.ok(
     Math.abs(t2) > T_THRESHOLD,
-    `Buffer#equals should leak information from its execution time (t=${t2})`
+    'Buffer#equals should leak information from its execution time (t=' + t2 + ')'
   );
 });
 function getTValue(compareFunc) {
-  const numTrials = 10000;
-  const testBufferSize = 10000;
+  var numTrials = 10000;
+  var testBufferSize = 10000;
   // Perform benchmarks to verify that timingSafeEqual is actually timing-safe.
 
-  const rawEqualBenches = Array(numTrials);
-  const rawUnequalBenches = Array(numTrials);
+  var rawEqualBenches = Array(numTrials);
+  var rawUnequalBenches = Array(numTrials);
 
-  for (let i = 0; i < numTrials; i++) {
+  for (var i = 0; i < numTrials; i++) {
 
     // The `runEqualBenchmark` and `runUnequalBenchmark` functions are
     // intentionally redefined on every iteration of this loop, to avoid
     // timing inconsistency.
     function runEqualBenchmark(compareFunc, bufferA, bufferB) {
-      const startTime = process.hrtime();
-      const result = compareFunc(bufferA, bufferB);
-      const endTime = process.hrtime(startTime);
+      var startTime = process.hrtime();
+      var result = compareFunc(bufferA, bufferB);
+      var endTime = process.hrtime(startTime);
 
       // Ensure that the result of the function call gets used, so it doesn't
       // get discarded due to engine optimizations.
@@ -84,19 +115,19 @@ function getTValue(compareFunc) {
     // This is almost the same as the runEqualBenchmark function, but it's
     // duplicated to avoid timing issues with V8 optimization/inlining.
     function runUnequalBenchmark(compareFunc, bufferA, bufferB) {
-      const startTime = process.hrtime();
-      const result = compareFunc(bufferA, bufferB);
-      const endTime = process.hrtime(startTime);
+      var startTime = process.hrtime();
+      var result = compareFunc(bufferA, bufferB);
+      var endTime = process.hrtime(startTime);
 
       assert.strictEqual(result, false);
       return endTime[0] * 1e9 + endTime[1];
     }
 
     if (i % 2) {
-      const bufferA1 = Buffer.alloc(testBufferSize, 'A');
-      const bufferB = Buffer.alloc(testBufferSize, 'B');
-      const bufferA2 = Buffer.alloc(testBufferSize, 'A');
-      const bufferC = Buffer.alloc(testBufferSize, 'C');
+      var bufferA1 = Buffer.alloc(testBufferSize, 'A');
+      var bufferB = Buffer.alloc(testBufferSize, 'B');
+      var bufferA2 = Buffer.alloc(testBufferSize, 'A');
+      var bufferC = Buffer.alloc(testBufferSize, 'C');
 
       // First benchmark: comparing two equal buffers
       rawEqualBenches[i] = runEqualBenchmark(compareFunc, bufferA1, bufferA2);
@@ -106,50 +137,50 @@ function getTValue(compareFunc) {
     } else {
       // Swap the order of the benchmarks every second iteration, to avoid any
       // patterns caused by memory usage.
-      const bufferB = Buffer.alloc(testBufferSize, 'B');
-      const bufferA1 = Buffer.alloc(testBufferSize, 'A');
-      const bufferC = Buffer.alloc(testBufferSize, 'C');
-      const bufferA2 = Buffer.alloc(testBufferSize, 'A');
+      var bufferB = Buffer.alloc(testBufferSize, 'B');
+      var bufferA1 = Buffer.alloc(testBufferSize, 'A');
+      var bufferC = Buffer.alloc(testBufferSize, 'C');
+      var bufferA2 = Buffer.alloc(testBufferSize, 'A');
       rawUnequalBenches[i] = runUnequalBenchmark(compareFunc, bufferB, bufferC);
       rawEqualBenches[i] = runEqualBenchmark(compareFunc, bufferA1, bufferA2);
     }
   }
 
-  const equalBenches = filterOutliers(rawEqualBenches);
-  const unequalBenches = filterOutliers(rawUnequalBenches);
+  var equalBenches = filterOutliers(rawEqualBenches);
+  var unequalBenches = filterOutliers(rawUnequalBenches);
 
   // Use a two-sample t-test to determine whether the timing difference between
   // the benchmarks is statistically significant.
   // https://wikipedia.org/wiki/Student%27s_t-test#Independent_two-sample_t-test
 
-  const equalMean = mean(equalBenches);
-  const unequalMean = mean(unequalBenches);
+  var equalMean = mean(equalBenches);
+  var unequalMean = mean(unequalBenches);
 
-  const equalLen = equalBenches.length;
-  const unequalLen = unequalBenches.length;
+  var equalLen = equalBenches.length;
+  var unequalLen = unequalBenches.length;
 
-  const combinedStd = combinedStandardDeviation(equalBenches, unequalBenches);
-  const standardErr = combinedStd * Math.sqrt(1 / equalLen + 1 / unequalLen);
+  var combinedStd = combinedStandardDeviation(equalBenches, unequalBenches);
+  var standardErr = combinedStd * Math.sqrt(1 / equalLen + 1 / unequalLen);
 
   return (equalMean - unequalMean) / standardErr;
 }
 
 // Returns the mean of an array
 function mean(array) {
-  return array.reduce((sum, val) => sum + val, 0) / array.length;
+  return array.reduce(function (sum, val) { return sum + val }, 0) / array.length;
 }
 
 // Returns the sample standard deviation of an array
 function standardDeviation(array) {
-  const arrMean = mean(array);
-  const total = array.reduce((sum, val) => sum + Math.pow(val - arrMean, 2), 0);
+  var arrMean = mean(array);
+  var total = array.reduce(function (sum, val) { return sum + Math.pow(val - arrMean, 2) }, 0);
   return Math.sqrt(total / (array.length - 1));
 }
 
 // Returns the common standard deviation of two arrays
 function combinedStandardDeviation(array1, array2) {
-  const sum1 = Math.pow(standardDeviation(array1), 2) * (array1.length - 1);
-  const sum2 = Math.pow(standardDeviation(array2), 2) * (array2.length - 1);
+  var sum1 = Math.pow(standardDeviation(array1), 2) * (array1.length - 1);
+  var sum2 = Math.pow(standardDeviation(array2), 2) * (array2.length - 1);
   return Math.sqrt((sum1 + sum2) / (array1.length + array2.length - 2));
 }
 
@@ -158,6 +189,6 @@ function combinedStandardDeviation(array1, array2) {
 // due to the standard deviation increase when a function unexpectedly takes
 // a very long time to execute.
 function filterOutliers(array) {
-  const arrMean = mean(array);
-  return array.filter((value) => value / arrMean < 50);
+  var arrMean = mean(array);
+  return array.filter(function (value) { return value / arrMean < 50 });
 }

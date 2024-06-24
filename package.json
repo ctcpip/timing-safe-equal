@@ -21,5 +21,9 @@
   },
   "devDependencies": {
     "tape": "^4.6.0"
-  }
+  },
+  "files": [
+    "browser.js",
+    "index.js"
+  ]
 }
